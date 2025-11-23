@@ -1,3 +1,4 @@
+// src/components/Home.js
 import React from 'react';
 
 const Home = ({ onGoToMap }) => {
@@ -29,12 +30,10 @@ const Home = ({ onGoToMap }) => {
             <span className="badge-hot">HOT</span>
             <span className="ticker-text">실시간 1위: 성수동 트리마제</span>
          </div>
-         
          <div className="section-title">
           <span>오늘의 추천 매물</span>
           <span style={{ fontSize: '13px', color: '#6366f1', cursor: 'pointer' }}>더보기 →</span>
         </div>
-
         <div className="card-list">
           {recommendations.map(item => (
             <div key={item.id} className="property-card">

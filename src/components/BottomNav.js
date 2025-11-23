@@ -11,6 +11,10 @@ const BottomNav = ({ activeTab, setActiveTab }) => {
         <button className={`dock-item ${activeTab === 'home' ? 'active' : ''}`} onClick={() => setActiveTab('home')}>
           <span className="dock-icon">🏠</span>{activeTab === 'home' && <span className="dock-label">홈</span>}
         </button>
+        {/* [NEW] 관리 탭 추가 */}
+        <button className={`dock-item ${activeTab === 'mgmt' ? 'active' : ''}`} onClick={() => setActiveTab('mgmt')}>
+          <span className="dock-icon">🛠️</span>{activeTab === 'mgmt' && <span className="dock-label">관리</span>}
+        </button>
         <button className={`dock-item ${activeTab === 'finance' ? 'active' : ''}`} onClick={() => setActiveTab('finance')}>
           <span className="dock-icon">💰</span>{activeTab === 'finance' && <span className="dock-label">금융</span>}
         </button>

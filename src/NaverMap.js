@@ -1,16 +1,15 @@
 // src/NaverMap.js
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { generateDummyData } from './dummyData';
+import { getClusters } from './utils/clusterUtils'; // 클러스터 유틸
 import './NaverMap.css';
 
-// ✅ filterType prop 추가
 function NaverMap({ height = "100%", onMarkerClick, isActive, filterType }) {
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markersRef = useRef([]);
   const [mapType, setMapType] = useState('HYBRID'); 
 
-  // ... (changeMapType, handleZoom 등 기존 함수 유지) ...
   const changeMapType = (type) => {
     if (!mapInstanceRef.current || !window.naver) return;
     setMapType(type);
@@ -23,21 +22,14 @@ function NaverMap({ height = "100%", onMarkerClick, isActive, filterType }) {
     mapInstanceRef.current.setZoom(mapInstanceRef.current.getZoom() + delta);
   };
 
-  const initMap = useCallback(() => {
-    if (mapInstanceRef.current) {
-        // 맵이 이미 있으면 마커만 새로고침하는 로직으로 분기 가능하지만, 
-        // 여기선 간편하게 마커 재생성 로직을 실행합니다.
-    } else {
-        const map = new window.naver.maps.Map(mapRef.current, {
-            center: new window.naver.maps.LatLng(37.525, 126.896),
-            zoom: 15,
-            mapTypeId: window.naver.maps.MapTypeId.HYBRID,
-            scaleControl: false, logoControl: false, mapDataControl: false, zoomControl: false,
-        });
-        mapInstanceRef.current = map;
-    }
+  // 맵 그리기 함수
+  const updateMarkers = useCallback(() => {
+    if (!mapInstanceRef.current) return;
 
-    // 1. 기존 마커 삭제 (초기화)
+    const map = mapInstanceRef.current;
+    const zoom = map.getZoom(); // 현재 줌 레벨
+
+    // 1. 기존 마커 삭제
     markersRef.current.forEach(marker => marker.setMap(null));
     markersRef.current = [];
 
@@ -45,36 +37,96 @@ function NaverMap({ height = "100%", onMarkerClick, isActive, filterType }) {
     const allApts = generateDummyData();
     const filteredApts = allApts.filter(apt => {
         if (filterType === '전체') return true;
-        return apt.type === filterType; // '아파트' or '오피스텔'
+        return apt.type === filterType;
     });
 
-    // 3. 필터링된 데이터로 마커 생성
-    const newMarkers = filteredApts.map((apt) => {
-        const marker = new window.naver.maps.Marker({
-            position: new window.naver.maps.LatLng(apt.lat, apt.lng),
-            map: mapInstanceRef.current,
-            icon: {
-                content: `
-                  <div class="marker-price" style="background: ${apt.type === '아파트' ? '' : '#10b981'}">
-                    ${apt.price}
-                  </div>
-                `,
-                anchor: new window.naver.maps.Point(22, 11),
-            },
-            zIndex: 100
-        });
+    // 3. 클러스터링 계산 (줌 16 이상이면 클러스터링 해제하고 개별 마커 표시)
+    let pointsToRender = [];
+    if (zoom >= 16) {
+        // 개별 매물 모드
+        pointsToRender = filteredApts.map(apt => ({ ...apt, isCluster: false }));
+    } else {
+        // 클러스터 모드
+        const clusters = getClusters(filteredApts, zoom);
+        pointsToRender = clusters.map(c => ({ ...c, isCluster: true }));
+    }
 
-        window.naver.maps.Event.addListener(marker, 'click', () => {
-            if (onMarkerClick) onMarkerClick(apt);
-        });
+    // 4. 마커 생성
+    const newMarkers = pointsToRender.map((point) => {
+        // (A) 클러스터 마커
+        if (point.isCluster) {
+            const marker = new window.naver.maps.Marker({
+                position: new window.naver.maps.LatLng(point.lat, point.lng),
+                map: map,
+                icon: {
+                    content: `
+                      <div class="marker-cluster">
+                        ${point.count}
+                      </div>
+                    `,
+                    anchor: new window.naver.maps.Point(25, 25),
+                },
+                zIndex: 100
+            });
 
-        return marker;
+            // 클러스터 클릭 시 -> 줌 확대 & 이동
+            window.naver.maps.Event.addListener(marker, 'click', () => {
+                map.panTo(new window.naver.maps.LatLng(point.lat, point.lng));
+                setTimeout(() => {
+                    map.setZoom(zoom + 2); // 2단계 확대
+                }, 100);
+            });
+            return marker;
+        } 
+        
+        // (B) 개별 매물 마커
+        else {
+            const marker = new window.naver.maps.Marker({
+                position: new window.naver.maps.LatLng(point.lat, point.lng),
+                map: map,
+                icon: {
+                    content: `
+                      <div class="marker-price" style="background: ${point.type === '아파트' ? '' : '#10b981'}">
+                        ${point.price}
+                      </div>
+                    `,
+                    anchor: new window.naver.maps.Point(22, 11),
+                },
+                zIndex: 100
+            });
+
+            window.naver.maps.Event.addListener(marker, 'click', () => {
+                if (onMarkerClick) onMarkerClick(point);
+            });
+            return marker;
+        }
     });
 
     markersRef.current = newMarkers;
-  }, [onMarkerClick, filterType]); // ✅ filterType이 바뀌면 재실행
+  }, [filterType, onMarkerClick]);
 
-  // ... (useEffect 부분 유지) ...
+  const initMap = useCallback(() => {
+    if (mapInstanceRef.current) return;
+
+    const map = new window.naver.maps.Map(mapRef.current, {
+        center: new window.naver.maps.LatLng(37.525, 126.896),
+        zoom: 14, // 초기 줌 약간 축소
+        mapTypeId: window.naver.maps.MapTypeId.HYBRID,
+        scaleControl: false, logoControl: false, mapDataControl: false, zoomControl: false,
+    });
+    mapInstanceRef.current = map;
+
+    // 줌 변경이나 드래그가 끝날 때마다 마커 다시 계산
+    window.naver.maps.Event.addListener(map, 'idle', updateMarkers);
+    updateMarkers(); // 최초 실행
+
+  }, [updateMarkers]);
+
+  // 필터가 바뀌면 마커 강제 업데이트
+  useEffect(() => {
+      updateMarkers();
+  }, [filterType, updateMarkers]);
+
   useEffect(() => {
     const checkInterval = setInterval(() => {
       if (window.naver && window.naver.maps) {

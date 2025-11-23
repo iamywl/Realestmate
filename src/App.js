@@ -3,11 +3,15 @@ import React, { useState } from 'react';
 import NaverMapLoader from './NaverMapLoader';
 import NaverMap from './NaverMap';
 import Finance from './Finance';
-// ✅ [NEW] 분리한 컴포넌트들 불러오기
+
+// 분리된 컴포넌트 import
 import Home from './components/Home';
 import FloatingSearch from './components/FloatingSearch';
 import BottomNav from './components/BottomNav';
 import ModernDetail from './components/ModernDetail';
+import Management from './components/Management'; // [NEW]
+import MyPage from './components/MyPage';         // [NEW]
+
 import './App.css';
 
 function App() {
@@ -30,7 +34,6 @@ function App() {
 
       {/* 2. 지도 탭 */}
       <div className="map-viewport" style={{ display: activeTab === 'map' ? 'block' : 'none' }}>
-        
         {activeTab === 'map' && (
           <FloatingSearch filterType={filterType} setFilterType={setFilterType} />
         )}
@@ -58,14 +61,13 @@ function App() {
       {/* 3. 금융 탭 */}
       {activeTab === 'finance' && <div className="main-viewport"><Finance savedList={savedList} /></div>}
       
-      {/* 4. 마이페이지 탭 */}
-      {activeTab === 'mypage' && (
-         <div className="main-viewport" style={{display:'flex',justifyContent:'center',alignItems:'center'}}>
-            <h2>마이페이지 (준비중)</h2>
-         </div>
-      )}
+      {/* 4. [NEW] 내집관리 탭 */}
+      {activeTab === 'mgmt' && <div className="main-viewport"><Management /></div>}
 
-      {/* 5. 하단 네비게이션 (독) */}
+      {/* 5. [NEW] 마이페이지 탭 */}
+      {activeTab === 'mypage' && <div className="main-viewport"><MyPage savedCount={savedList.length} /></div>}
+
+      {/* 하단 네비게이션 */}
       <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
     </div>
   );

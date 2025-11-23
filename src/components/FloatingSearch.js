@@ -1,3 +1,4 @@
+// src/components/FloatingSearch.js
 import React from 'react';
 
 const FloatingSearch = ({ filterType, setFilterType }) => {

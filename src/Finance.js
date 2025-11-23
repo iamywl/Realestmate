@@ -1,7 +1,7 @@
 // src/Finance.js
 import React, { useState, useEffect } from 'react';
 
-// --- 유틸리티 함수 ---
+// 유틸
 const parsePriceToManwon = (priceStr) => {
   if (!priceStr) return 0;
   let total = 0;
@@ -23,7 +23,7 @@ const formatNum = (num) => num ? Math.round(num).toString().replace(/\B(?=(\d{3}
 const HelpTip = ({ title, desc }) => {
   const [show, setShow] = useState(false);
   return (
-    <span style={{position:'relative', marginLeft:'6px', cursor:'help', display:'inline-block'}} 
+    <span style={{position:'relative', marginLeft:'4px', cursor:'help', display:'inline-block'}} 
           onMouseEnter={()=>setShow(true)} onMouseLeave={()=>setShow(false)}>
       <span style={{color:'#888', fontSize:'12px', border:'1px solid #ddd', borderRadius:'50%', width:'16px', height:'16px', display:'flex', alignItems:'center', justifyContent:'center'}}>?</span>
       {show && (
@@ -42,268 +42,247 @@ const HelpTip = ({ title, desc }) => {
 const Finance = ({ savedList }) => {
   const [selectedItem, setSelectedItem] = useState(null);
   
-  // [입력 상태]
-  const [myCash, setMyCash] = useState(0);         // 보유 현금
-  const [income, setIncome] = useState(6000);      // 연봉 (DSR용)
-  const [otherDebt, setOtherDebt] = useState(0);   // 기타 대출의 연간 원리금 상환액 (DSR용)
-  const [loanTerm, setLoanTerm] = useState(30);    // 대출 기간
-  const [interestRate, setInterestRate] = useState(4.0); // 대출 금리
+  // ✅ [탭 상태] basic: 비용/계약, advanced: 소득/한도진단
+  const [analysisTab, setAnalysisTab] = useState('basic'); 
 
-  // 매물 선택 시 초기값 세팅
+  // [계약 도우미 상태] (기존 기능 유지)
+  const [showContractHelper, setShowContractHelper] = useState(false);
+  const [contractOptions, setContractOptions] = useState({
+    loan: false, leak: false, tenant: false, clean: false
+  });
+
+  // [입력 상태]
+  const [myCash, setMyCash] = useState(0);         
+  const [income, setIncome] = useState(5000);      
+  const [otherDebt, setOtherDebt] = useState(0);   
+  const [loanTerm, setLoanTerm] = useState(30);    
+  const [interestRate, setInterestRate] = useState(4.0); 
+
   useEffect(() => {
     if (selectedItem) {
       const priceVal = parsePriceToManwon(selectedItem.price);
-      setMyCash(Math.floor(priceVal * 0.4)); // 집값의 40% 보유 가정
+      setMyCash(Math.floor(priceVal * 0.3)); // 기본값: 30% 보유 가정
     }
   }, [selectedItem]);
 
-  if (!selectedItem && savedList.length === 0) {
-    return (
-        <div className="finance-container">
-            <h2 className="finance-title">💸 자금 상세 분석</h2>
-            <div className="empty-state">
-              <span style={{fontSize: '40px'}}>📝</span>
-              <p>분석할 데이터가 없습니다.<br/>지도에서 매물을 먼저 저장해주세요.</p>
-            </div>
-        </div>
+  // --- [계산 로직 공통] ---
+  const housePrice = selectedItem ? parsePriceToManwon(selectedItem.price) : 0;
+  
+  // 세금 및 비용
+  let taxRate = 0.011;
+  if (housePrice > 90000) taxRate = 0.033;
+  else if (housePrice > 60000) taxRate = 0.022;
+  if (selectedItem && selectedItem.type === '오피스텔') taxRate = 0.046;
+  
+  const acquisitionTax = Math.floor(housePrice * taxRate);
+  const agentFee = Math.floor(housePrice * 0.004);
+  const otherCost = 300; 
+  const totalInitialCost = housePrice + acquisitionTax + agentFee + otherCost;
+  
+  // 대출
+  const needLoan = Math.max(0, totalInitialCost - myCash); // 단순 필요 대출액
+  
+  // 월 상환금 (원리금균등)
+  const monthlyRate = (interestRate / 100) / 12;
+  const totalMonths = loanTerm * 12;
+  let monthlyPayment = 0;
+  if (needLoan > 0) {
+    monthlyPayment = Math.floor(
+      (needLoan * 10000 * monthlyRate * Math.pow(1 + monthlyRate, totalMonths)) / 
+      (Math.pow(1 + monthlyRate, totalMonths) - 1)
     );
   }
 
+  // 규제 비율 (DSR/LTV)
+  const yearlyPayment = monthlyPayment * 12;
+  const totalYearlyDebt = yearlyPayment + (otherDebt * 10000);
+  const dsr = income > 0 ? ((totalYearlyDebt / (income * 10000)) * 100).toFixed(1) : 0;
+  const ltv = housePrice > 0 ? ((needLoan / housePrice) * 100).toFixed(1) : 0;
+  const holdingTaxYearly = Math.floor(housePrice * 0.7 * 0.002); 
+  const maintenanceFee = 200000;
+
+  // --- [신규 기능 로직: 한도 및 소득 역산] ---
+  const ltvLimit = Math.floor(housePrice * 0.7); // LTV 70% 한도
+  const maxYearlyPaymentDsr = (income * 10000) * 0.4 - (otherDebt * 10000); // DSR 40% 가용액
+  
+  let dsrLimit = 0;
+  if (maxYearlyPaymentDsr > 0) {
+      dsrLimit = Math.floor(
+          (maxYearlyPaymentDsr / 12 * (Math.pow(1 + monthlyRate, totalMonths) - 1)) / 
+          (monthlyRate * Math.pow(1 + monthlyRate, totalMonths)) / 10000
+      );
+  }
+  const finalLoanLimit = Math.min(ltvLimit, dsrLimit);
+  const isPossible = finalLoanLimit >= needLoan;
+
+  // 필요 소득 역산
+  const requiredYearlyPayment = yearlyPayment; 
+  const requiredIncome = Math.ceil((requiredYearlyPayment + (otherDebt * 10000)) / 0.4 / 10000);
+
+  // 특약 생성기
+  const generateClause = () => {
+    let text = "";
+    if (contractOptions.loan) text += "1. 매수인의 귀책사유 없이 대출 미승인 시 본 계약은 무효로 하며 계약금을 반환한다.\n";
+    if (contractOptions.leak) text += "2. 잔금일로부터 6개월 내 중대 하자(누수 등) 발견 시 매도인이 책임진다.\n";
+    if (contractOptions.tenant) text += "3. 현 임대차 계약을 승계하는 조건이며, 잔금일까지 임차인 문제를 해결한다.\n";
+    if (contractOptions.clean) text += "4. 잔금일 전까지 폐기물 처리 및 입주 청소를 완료한다.\n";
+    return text || "선택된 특약이 없습니다.";
+  };
+
+  // 1. 목록 화면
   if (!selectedItem) {
     return (
       <div className="finance-container">
-        <h2 className="finance-title">💸 자금 상세 분석</h2>
-        <p className="sub-desc">LTV, DSR 규제부터 세금까지 완벽하게 계산해드립니다.</p>
-        <div className="saved-grid">
-          {savedList.map((item) => (
+        <div className="sim-header" style={{border:0}}>
+            <h2 className="finance-title">💸 자금 & 계약 솔루션</h2>
+            <p className="sub-desc">자금 분석, 대출 한도 진단, 계약서 작성까지 한번에!</p>
+        </div>
+        
+        <div className="contract-banner" onClick={() => setShowContractHelper(true)}>
+            <div className="cb-icon">⚖️</div>
+            <div className="cb-text">
+                <strong>안전 계약 특약 생성기</strong>
+                <span>전세사기, 대출거절 방지 특약 자동 생성</span>
+            </div>
+            <div className="cb-arrow">→</div>
+        </div>
+
+        <div className="saved-grid" style={{marginTop:'20px'}}>
+          {savedList.length === 0 ? (
+             <div className="empty-state">📌 저장된 매물이 없습니다.</div>
+          ) : savedList.map((item) => (
             <div key={item.id} className="saved-card" onClick={() => setSelectedItem(item)}>
               <div className="card-top">
                 <div className="saved-tag">{item.type}</div>
                 <div className="saved-price">{item.price}</div>
               </div>
               <div className="saved-name">{item.name}</div>
-              <button className="calc-btn">상세 분석 →</button>
+              <button className="calc-btn">분석 시작 →</button>
             </div>
           ))}
         </div>
+
+        {/* 계약 도우미 모달 */}
+        {showContractHelper && (
+            <div className="report-overlay" onClick={() => setShowContractHelper(false)}>
+                <div className="report-modal" onClick={e => e.stopPropagation()} style={{width:'350px'}}>
+                    <div className="report-head" style={{background:'#4f46e5'}}><h3>⚖️ 계약 특약 도우미</h3></div>
+                    <div className="report-body">
+                        <div className="check-list-group">
+                            <label className={`check-item ${contractOptions.loan?'done':''}`} onClick={()=>setContractOptions({...contractOptions, loan:!contractOptions.loan})}>
+                                <div className="check-box-ui">{contractOptions.loan?'✔':''}</div><span>대출 안 나올까봐 걱정돼요</span>
+                            </label>
+                            <label className={`check-item ${contractOptions.leak?'done':''}`} onClick={()=>setContractOptions({...contractOptions, leak:!contractOptions.leak})}>
+                                <div className="check-box-ui">{contractOptions.leak?'✔':''}</div><span>누수가 걱정돼요</span>
+                            </label>
+                        </div>
+                        <div className="clause-box">
+                            <h5>📄 계약서 특약 사항</h5>
+                            <textarea readOnly value={generateClause()} />
+                        </div>
+                        <button className="report-btn" onClick={()=>alert('복사되었습니다!')}>복사하기</button>
+                    </div>
+                </div>
+            </div>
+        )}
       </div>
     );
   }
 
-  // --- [1] 핵심 계산 로직 ---
-  const housePrice = parsePriceToManwon(selectedItem.price);
-
-  // 1. 취득세 (주택 가액에 따른 차등 세율)
-  // 6억이하: 1.1%, 6~9억: 1.1~3.3%, 9억초과: 3.3% (지방교육세 포함 약식)
-  let acqRate = 0.011; 
-  if (housePrice > 90000) acqRate = 0.033; // 9억 초과
-  else if (housePrice > 60000) {
-      // 6~9억 사이 복잡한 구간 (약식으로 중간값 적용)
-      acqRate = 0.022; 
-  }
-  // 오피스텔은 무조건 4.6%
-  if (selectedItem.type === '오피스텔') acqRate = 0.046;
-  
-  const acqTax = Math.floor(housePrice * acqRate);
-
-  // 2. 중개수수료 (상한 요율 적용)
-  // 2~9억: 0.4%, 9~12억: 0.5%, 12~15억: 0.6%, 15억~: 0.7%
-  let agentRate = 0.004;
-  if (housePrice >= 150000) agentRate = 0.007;
-  else if (housePrice >= 120000) agentRate = 0.006;
-  else if (housePrice >= 90000) agentRate = 0.005;
-  if (selectedItem.type === '오피스텔') agentRate = 0.004; // 오피스텔 단일
-  
-  const agentFee = Math.floor(housePrice * agentRate);
-
-  // 3. 기타 비용 (법무비 + 채권할인 + 인지세 등) -> 대략 0.3% 잡음
-  const legalFee = Math.floor(housePrice * 0.003);
-
-  // 4. 총 필요 자금 & 대출금
-  const totalCost = housePrice + acqTax + agentFee + legalFee;
-  const loanAmount = Math.max(0, totalCost - myCash);
-
-  // --- [2] 규제 비율 계산 (Regulatory) ---
-  
-  // LTV (Loan To Value)
-  const ltv = ((loanAmount / housePrice) * 100).toFixed(1);
-
-  // 월 원리금 상환액 (원리금균등)
-  const monthlyRate = (interestRate / 100) / 12;
-  const totalMonths = loanTerm * 12;
-  let monthlyPayment = 0;
-  if (loanAmount > 0) {
-    monthlyPayment = Math.floor(
-      (loanAmount * 10000 * monthlyRate * Math.pow(1 + monthlyRate, totalMonths)) / 
-      (Math.pow(1 + monthlyRate, totalMonths) - 1)
-    );
-  }
-  const yearlyPayment = monthlyPayment * 12; // 연간 주담대 원리금
-
-  // DSR (Debt Service Ratio): (주담대 연원리금 + 기타부채 연원리금) / 연소득
-  // otherDebt: 사용자가 입력한 기타 대출의 연간 상환액 (만원 단위라고 가정)
-  const totalYearlyDebt = yearlyPayment + (otherDebt * 10000);
-  const dsr = income > 0 ? ((totalYearlyDebt / (income * 10000)) * 100).toFixed(1) : 0;
-
-  // DTI (Debt To Income): (주담대 연원리금 + 기타대출 '이자') / 연소득 
-  // (간편 계산을 위해 기타대출 전체 상환액의 30%를 이자로 가정)
-  const dti = income > 0 ? ((yearlyPayment + (otherDebt * 10000 * 0.3)) / (income * 10000) * 100).toFixed(1) : 0;
-
-  // 보유세 (재산세 + 종부세) 약식 추산 (공시가 70% 가정, 세율 단순화)
-  const holdingTaxYearly = Math.floor(housePrice * 0.7 * 0.002); // 0.2% 단순 적용
-  const maintenanceFee = 200000; // 관리비 20만원 고정
-
-  // 판정 로직
-  const isLtvSafe = ltv <= 70; // 보통 70% 제한
-  const isDsrSafe = dsr <= 40; // 1금융권 40% 제한
-
+  // 2. 상세 분석 화면
   return (
     <div className="finance-container">
       <div className="sim-header">
         <button className="back-link" onClick={() => setSelectedItem(null)}>← 목록</button>
-        <h3>{selectedItem.name} <span style={{fontSize:'16px', color:'#555'}}>상세 분석</span></h3>
-        <div className="price-badge">{selectedItem.price}</div>
+        <h3>{selectedItem.name} <span style={{fontSize:'16px', color:'#555'}}>자금 분석</span></h3>
       </div>
 
-      <div className="finance-grid-layout">
-        
-        {/* LEFT: 입력 폼 */}
-        <div className="input-column">
-            <h4 className="section-head">1. 자금 조건 설정</h4>
-            
-            <div className="input-card">
-                <div className="input-row">
-                    <label>보유 현금 (가용 자금)</label>
-                    <input type="number" value={myCash} onChange={(e)=>setMyCash(Number(e.target.value))}/>
-                    <span className="unit">만원</span>
-                </div>
-                <div className="input-row">
-                    <label>연 소득 (세전)</label>
-                    <input type="number" value={income} onChange={(e)=>setIncome(Number(e.target.value))}/>
-                    <span className="unit">만원</span>
-                </div>
-                <div className="input-row">
-                    <label>기타 대출 상환액 (연간) <HelpTip title="기타 대출" desc="신용대출, 마통, 학자금 등 다른 빚을 갚는데 1년에 쓰는 원금+이자 총액입니다."/></label>
-                    <input type="number" value={otherDebt} onChange={(e)=>setOtherDebt(Number(e.target.value))}/>
-                    <span className="unit">만원</span>
-                </div>
-            </div>
+      {/* ✅ 탭 메뉴: 기존 기능 vs 신규 기능 */}
+      <div className="finance-tabs">
+        <button className={`f-tab ${analysisTab==='basic'?'active':''}`} onClick={()=>setAnalysisTab('basic')}>🧾 종합 비용 분석</button>
+        <button className={`f-tab ${analysisTab==='advanced'?'active':''}`} onClick={()=>setAnalysisTab('advanced')}>📊 매수 가능성 진단</button>
+      </div>
 
-            <div className="input-card">
-                <label className="card-label">대출 조건</label>
-                <div className="dual-input">
-                    <div>
-                        <span>금리</span>
-                        <input type="number" value={interestRate} step="0.1" onChange={(e)=>setInterestRate(e.target.value)}/>
-                        <b>%</b>
-                    </div>
-                    <div>
-                        <span>기간</span>
-                        <input type="number" value={loanTerm} onChange={(e)=>setLoanTerm(e.target.value)}/>
-                        <b>년</b>
-                    </div>
-                </div>
+      <div className="analysis-grid">
+        {/* 공통 입력창 */}
+        <div className="input-section">
+            <h4>내 조건 입력</h4>
+            <div className="input-group">
+                <label>보유 현금</label>
+                <div className="input-wrapper"><input type="number" value={myCash} onChange={(e)=>setMyCash(Number(e.target.value))} /><span className="unit">만원</span></div>
+            </div>
+            <div className="input-group">
+                <label>연봉 (세전)</label>
+                <div className="input-wrapper"><input type="number" value={income} onChange={(e)=>setIncome(Number(e.target.value))} /><span className="unit">만원</span></div>
+            </div>
+            <div className="input-group">
+                <label>기타 대출 (연 상환액)</label>
+                <div className="input-wrapper"><input type="number" value={otherDebt} onChange={(e)=>setOtherDebt(Number(e.target.value))} /><span className="unit">만원</span></div>
+            </div>
+            <div className="row-inputs">
+                <div className="input-group"><label>금리 (%)</label><div className="input-wrapper small"><input type="number" value={interestRate} step="0.1" onChange={(e)=>setInterestRate(e.target.value)}/></div></div>
+                <div className="input-group"><label>기간 (년)</label><div className="input-wrapper small"><input type="number" value={loanTerm} onChange={(e)=>setLoanTerm(e.target.value)}/></div></div>
             </div>
         </div>
 
-        {/* RIGHT: 결과 리포트 */}
-        <div className="result-column">
+        {/* 결과 섹션: 탭에 따라 다름 */}
+        <div className="result-section">
             
-            {/* (1) 규제 심사 카드 */}
-            <div className="result-card regulation-card">
-                <h4 className="card-title">🏦 대출 규제 심사 (DSR/LTV)</h4>
-                
-                {/* LTV */}
-                <div className="reg-row">
-                    <div className="reg-label">
-                        LTV (담보인정비율) <HelpTip title="LTV" desc="집값 대비 대출금의 비율입니다. 보통 70% (생애최초 80%) 까지 가능합니다."/>
+            {/* TAB 1: 기존 종합 비용 분석 */}
+            {analysisTab === 'basic' && (
+                <>
+                    <div className="cost-breakdown">
+                        <h4>💸 초기 필요 자금</h4>
+                        <div className="breakdown-item"><span>집값</span><span>{formatNum(housePrice)} 만원</span></div>
+                        <div className="breakdown-item"><span>+ 취득세/중개비/등기</span><span>{formatNum(totalInitialCost - housePrice)} 만원</span></div>
+                        <div className="breakdown-total"><span>필요 대출금</span><span style={{color:'#e11d48'}}>{formatNum(needLoan)} 만원</span></div>
                     </div>
-                    <div className="reg-bar-bg">
-                        <div className={`reg-bar ${isLtvSafe ? 'safe' : 'danger'}`} style={{width: `${Math.min(ltv, 100)}%`}}></div>
+                    <div className="loan-analysis-card">
+                        <div className="monthly-payment-box">
+                            <div className="payment-row"><span>월 원리금</span><strong>{formatNum(monthlyPayment)} 원</strong></div>
+                            <div className="payment-row"><span>월 관리비+세금</span><span>{formatNum(maintenanceFee + holdingTaxYearly/12)} 원</span></div>
+                            <div className="payment-total"><span>총 월 고정지출</span><span style={{color:'#6366f1'}}>{formatNum(monthlyPayment + maintenanceFee + holdingTaxYearly/12)} 원</span></div>
+                        </div>
                     </div>
-                    <div className={`reg-val ${!isLtvSafe && 'warn'}`}>{ltv}% / 70%</div>
-                </div>
+                </>
+            )}
 
-                {/* DSR */}
-                <div className="reg-row">
-                    <div className="reg-label">
-                        DSR (총부채상환비율) <HelpTip title="DSR" desc="내 연봉에서 모든 빚을 갚는데 쓰는 돈의 비율입니다. 40%를 넘으면 대출이 거절될 수 있습니다."/>
+            {/* TAB 2: 신규 매수 가능성 진단 (역산 기능) */}
+            {analysisTab === 'advanced' && (
+                <>
+                    <div className={`verdict-card ${isPossible ? 'success' : 'fail'}`}>
+                        <h4>AI 진단 결과</h4>
+                        <div className="verdict-text">{isPossible ? '매수 가능합니다! 🎉' : '자금이 부족해요 🚧'}</div>
+                        {!isPossible && <p className="verdict-sub">한도보다 <strong>{formatNum(needLoan - finalLoanLimit)}만원</strong> 더 필요합니다.</p>}
                     </div>
-                    <div className="reg-bar-bg">
-                        <div className={`reg-bar ${isDsrSafe ? 'safe' : 'danger'}`} style={{width: `${Math.min(dsr, 100)}%`}}></div>
-                    </div>
-                    <div className={`reg-val ${!isDsrSafe && 'warn'}`}>{dsr}% / 40%</div>
-                </div>
 
-                {/* DTI */}
-                <div className="reg-row">
-                    <div className="reg-label">DTI (총부채상환비율)</div>
-                    <div className="reg-bar-bg">
-                        <div className="reg-bar safe" style={{width: `${Math.min(dti, 100)}%`, background:'#aaa'}}></div>
+                    <div className="loan-limit-analysis">
+                        <h5>📉 대출 한도 병목 분석</h5>
+                        <div className="limit-chart">
+                            <div className="limit-item">
+                                <div className="bar" style={{height:'100%', background:'#e5e7eb'}}></div><span>필요금액<br/>{formatNum(needLoan)}</span>
+                            </div>
+                            <div className="limit-item">
+                                <div className="bar" style={{height:`${Math.min(100, (ltvLimit/Math.max(needLoan,1))*100)}%`, background:'#3b82f6'}}></div><span>LTV한도<br/>{formatNum(ltvLimit)}</span>
+                            </div>
+                            <div className="limit-item">
+                                <div className="bar" style={{height:`${Math.min(100, (dsrLimit/Math.max(needLoan,1))*100)}%`, background: dsrLimit<needLoan?'#ef4444':'#10b981'}}></div><span>DSR한도<br/>{formatNum(dsrLimit)}</span>
+                            </div>
+                        </div>
                     </div>
-                    <div className="reg-val">{dti}%</div>
-                </div>
 
-                {!isDsrSafe && <div className="warning-box">🚨 DSR이 40%를 초과했습니다. 대출 한도가 줄어들 수 있습니다.</div>}
-            </div>
-
-            {/* (2) 초기 비용 영수증 */}
-            <div className="result-card receipt-card">
-                <h4 className="card-title">🧾 초기 필요 자금 명세서</h4>
-                <div className="receipt-row head">
-                    <span>항목</span><span>금액</span>
-                </div>
-                <div className="receipt-row">
-                    <span>매매가</span><span>{formatNum(housePrice)} 만원</span>
-                </div>
-                <div className="receipt-row sub">
-                    <span>ㄴ 취득세 ({(acqRate*100).toFixed(1)}%)</span>
-                    <span>+ {formatNum(acqTax)} 만원</span>
-                </div>
-                <div className="receipt-row sub">
-                    <span>ㄴ 중개보수 (상한)</span>
-                    <span>+ {formatNum(agentFee)} 만원</span>
-                </div>
-                <div className="receipt-row sub">
-                    <span>ㄴ 등기/법무비용 (추산)</span>
-                    <span>+ {formatNum(legalFee)} 만원</span>
-                </div>
-                
-                <div className="receipt-divider"></div>
-                
-                <div className="receipt-row total">
-                    <span>총 필요 비용</span>
-                    <span style={{color:'#6366f1'}}>{formatNum(totalCost)} 만원</span>
-                </div>
-                <div className="receipt-row final">
-                    <span>내 현금 제외 필요 대출금</span>
-                    <span style={{color:'#e11d48'}}>{formatNum(loanAmount)} 만원</span>
-                </div>
-            </div>
-
-            {/* (3) 월 고정 지출 */}
-            <div className="result-card monthly-card">
-                <h4 className="card-title">🗓 월 예상 납입금</h4>
-                <div className="monthly-grid">
-                    <div className="m-item">
-                        <label>대출 원리금</label>
-                        <strong>{formatNum(monthlyPayment)}원</strong>
+                    <div className="income-req-card" style={{marginTop:'15px'}}>
+                        <h4>💰 필요 소득 역산</h4>
+                        <div className="req-result-box">
+                            <span>이 대출을 받기 위한 최소 연봉</span>
+                            <strong>{formatNum(requiredIncome)} 만원</strong>
+                        </div>
+                        <p style={{fontSize:'12px', color:'#666'}}>
+                            {income >= requiredIncome ? "현재 소득으로 충분합니다. 👍" : `연봉이 ${formatNum(requiredIncome - income)}만원 부족합니다. 대출 기간을 늘려보세요.`}
+                        </p>
                     </div>
-                    <div className="m-item">
-                        <label>보유세 (월환산)</label>
-                        <strong>{formatNum(holdingTaxYearly/12)}원</strong>
-                    </div>
-                    <div className="m-item">
-                        <label>관리비 (평균)</label>
-                        <strong>{formatNum(maintenanceFee)}원</strong>
-                    </div>
-                </div>
-                <div className="monthly-total">
-                    <span>합계 (월)</span>
-                    <span>{formatNum(monthlyPayment + (holdingTaxYearly/12) + maintenanceFee)} 원</span>
-                </div>
-            </div>
-
+                </>
+            )}
         </div>
       </div>
     </div>
