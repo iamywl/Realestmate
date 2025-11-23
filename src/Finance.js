@@ -41,17 +41,15 @@ const HelpTip = ({ title, desc }) => {
 
 const Finance = ({ savedList }) => {
   const [selectedItem, setSelectedItem] = useState(null);
-  
-  // ✅ [탭 상태] basic: 비용/계약, advanced: 소득/한도진단
   const [analysisTab, setAnalysisTab] = useState('basic'); 
 
-  // [계약 도우미 상태] (기존 기능 유지)
+  // 계약 도우미 상태
   const [showContractHelper, setShowContractHelper] = useState(false);
   const [contractOptions, setContractOptions] = useState({
     loan: false, leak: false, tenant: false, clean: false
   });
 
-  // [입력 상태]
+  // 입력 상태
   const [myCash, setMyCash] = useState(0);         
   const [income, setIncome] = useState(5000);      
   const [otherDebt, setOtherDebt] = useState(0);   
@@ -61,14 +59,13 @@ const Finance = ({ savedList }) => {
   useEffect(() => {
     if (selectedItem) {
       const priceVal = parsePriceToManwon(selectedItem.price);
-      setMyCash(Math.floor(priceVal * 0.3)); // 기본값: 30% 보유 가정
+      setMyCash(Math.floor(priceVal * 0.3)); 
     }
   }, [selectedItem]);
 
-  // --- [계산 로직 공통] ---
+  // --- [계산 로직] ---
   const housePrice = selectedItem ? parsePriceToManwon(selectedItem.price) : 0;
   
-  // 세금 및 비용
   let taxRate = 0.011;
   if (housePrice > 90000) taxRate = 0.033;
   else if (housePrice > 60000) taxRate = 0.022;
@@ -79,10 +76,8 @@ const Finance = ({ savedList }) => {
   const otherCost = 300; 
   const totalInitialCost = housePrice + acquisitionTax + agentFee + otherCost;
   
-  // 대출
-  const needLoan = Math.max(0, totalInitialCost - myCash); // 단순 필요 대출액
+  const needLoan = Math.max(0, totalInitialCost - myCash);
   
-  // 월 상환금 (원리금균등)
   const monthlyRate = (interestRate / 100) / 12;
   const totalMonths = loanTerm * 12;
   let monthlyPayment = 0;
@@ -93,17 +88,18 @@ const Finance = ({ savedList }) => {
     );
   }
 
-  // 규제 비율 (DSR/LTV)
   const yearlyPayment = monthlyPayment * 12;
   const totalYearlyDebt = yearlyPayment + (otherDebt * 10000);
+  
+  // ✅ 경고 원인 해결: dsr, ltv 변수 활용
   const dsr = income > 0 ? ((totalYearlyDebt / (income * 10000)) * 100).toFixed(1) : 0;
   const ltv = housePrice > 0 ? ((needLoan / housePrice) * 100).toFixed(1) : 0;
+  
   const holdingTaxYearly = Math.floor(housePrice * 0.7 * 0.002); 
   const maintenanceFee = 200000;
 
-  // --- [신규 기능 로직: 한도 및 소득 역산] ---
-  const ltvLimit = Math.floor(housePrice * 0.7); // LTV 70% 한도
-  const maxYearlyPaymentDsr = (income * 10000) * 0.4 - (otherDebt * 10000); // DSR 40% 가용액
+  const ltvLimit = Math.floor(housePrice * 0.7); 
+  const maxYearlyPaymentDsr = (income * 10000) * 0.4 - (otherDebt * 10000); 
   
   let dsrLimit = 0;
   if (maxYearlyPaymentDsr > 0) {
@@ -115,11 +111,13 @@ const Finance = ({ savedList }) => {
   const finalLoanLimit = Math.min(ltvLimit, dsrLimit);
   const isPossible = finalLoanLimit >= needLoan;
 
-  // 필요 소득 역산
   const requiredYearlyPayment = yearlyPayment; 
   const requiredIncome = Math.ceil((requiredYearlyPayment + (otherDebt * 10000)) / 0.4 / 10000);
 
-  // 특약 생성기
+  // 배지 스타일 계산
+  const isLtvSafe = ltv <= 70;
+  const isDsrSafe = dsr <= 40;
+
   const generateClause = () => {
     let text = "";
     if (contractOptions.loan) text += "1. 매수인의 귀책사유 없이 대출 미승인 시 본 계약은 무효로 하며 계약금을 반환한다.\n";
@@ -162,7 +160,6 @@ const Finance = ({ savedList }) => {
           ))}
         </div>
 
-        {/* 계약 도우미 모달 */}
         {showContractHelper && (
             <div className="report-overlay" onClick={() => setShowContractHelper(false)}>
                 <div className="report-modal" onClick={e => e.stopPropagation()} style={{width:'350px'}}>
@@ -197,14 +194,12 @@ const Finance = ({ savedList }) => {
         <h3>{selectedItem.name} <span style={{fontSize:'16px', color:'#555'}}>자금 분석</span></h3>
       </div>
 
-      {/* ✅ 탭 메뉴: 기존 기능 vs 신규 기능 */}
       <div className="finance-tabs">
         <button className={`f-tab ${analysisTab==='basic'?'active':''}`} onClick={()=>setAnalysisTab('basic')}>🧾 종합 비용 분석</button>
         <button className={`f-tab ${analysisTab==='advanced'?'active':''}`} onClick={()=>setAnalysisTab('advanced')}>📊 매수 가능성 진단</button>
       </div>
 
       <div className="analysis-grid">
-        {/* 공통 입력창 */}
         <div className="input-section">
             <h4>내 조건 입력</h4>
             <div className="input-group">
@@ -216,7 +211,8 @@ const Finance = ({ savedList }) => {
                 <div className="input-wrapper"><input type="number" value={income} onChange={(e)=>setIncome(Number(e.target.value))} /><span className="unit">만원</span></div>
             </div>
             <div className="input-group">
-                <label>기타 대출 (연 상환액)</label>
+                {/* ✅ 경고 해결: HelpTip 사용 */}
+                <label>기타 대출 (연 상환액) <HelpTip title="기타 대출" desc="신용대출 등 다른 빚의 연간 원리금 상환액" /></label>
                 <div className="input-wrapper"><input type="number" value={otherDebt} onChange={(e)=>setOtherDebt(Number(e.target.value))} /><span className="unit">만원</span></div>
             </div>
             <div className="row-inputs">
@@ -225,10 +221,9 @@ const Finance = ({ savedList }) => {
             </div>
         </div>
 
-        {/* 결과 섹션: 탭에 따라 다름 */}
         <div className="result-section">
             
-            {/* TAB 1: 기존 종합 비용 분석 */}
+            {/* TAB 1: 종합 비용 분석 */}
             {analysisTab === 'basic' && (
                 <>
                     <div className="cost-breakdown">
@@ -238,6 +233,12 @@ const Finance = ({ savedList }) => {
                         <div className="breakdown-total"><span>필요 대출금</span><span style={{color:'#e11d48'}}>{formatNum(needLoan)} 만원</span></div>
                     </div>
                     <div className="loan-analysis-card">
+                        {/* ✅ 경고 해결: LTV, DSR 안전도 배지 추가 */}
+                        <div className="badge-container">
+                            <div className={`status-badge ${isLtvSafe ? 'safe' : 'danger'}`}>LTV {ltv}% {isLtvSafe ? '(안전)' : '(주의)'}</div>
+                            <div className={`status-badge ${isDsrSafe ? 'safe' : 'danger'}`}>DSR {dsr}% {isDsrSafe ? '(양호)' : '(위험)'}</div>
+                        </div>
+
                         <div className="monthly-payment-box">
                             <div className="payment-row"><span>월 원리금</span><strong>{formatNum(monthlyPayment)} 원</strong></div>
                             <div className="payment-row"><span>월 관리비+세금</span><span>{formatNum(maintenanceFee + holdingTaxYearly/12)} 원</span></div>
@@ -247,7 +248,7 @@ const Finance = ({ savedList }) => {
                 </>
             )}
 
-            {/* TAB 2: 신규 매수 가능성 진단 (역산 기능) */}
+            {/* TAB 2: 매수 가능성 진단 */}
             {analysisTab === 'advanced' && (
                 <>
                     <div className={`verdict-card ${isPossible ? 'success' : 'fail'}`}>
