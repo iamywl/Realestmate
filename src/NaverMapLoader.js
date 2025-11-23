@@ -1,35 +1,38 @@
-// src/NaverMapLoader.js
 import { useEffect, useRef } from 'react';
 
 function NaverMapLoader({ onLoad }) {
   const loadedRef = useRef(false);
 
   useEffect(() => {
-    if (loadedRef.current) {
-      console.log('[NaverMapLoader] 이미 로드됨 → 생략');
+    // 이미 로드되어 있으면 바로 완료 처리
+    if (window.naver && window.naver.maps) {
+      onLoad?.();
       return;
     }
+
+    if (loadedRef.current) return;
     loadedRef.current = true;
 
     const naverKey = process.env.REACT_APP_NAVER_MAP_KEY;
-    console.log('[DEBUG] 환경변수 NAVER KEY:', naverKey);
 
-    if (!naverKey) {
-      console.error('[NaverMapLoader] NAVER MAP KEY가 설정되지 않았습니다!');
-      return;
-    }
-
-    // ✅ 여기서 핵심 수정: ncpKeyId → ncpClientId
+    // 스크립트 태그 생성
     const script = document.createElement('script');
+    
+    // ✅ 수정됨: 사용자님의 원래 방식인 'ncpKeyId'로 복구했습니다.
     script.src = `https://openapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${naverKey}&submodules=geocoder`;
     script.async = true;
+
     script.onload = () => {
-      console.log('[NaverMapLoader] 스크립트 로드 완료 → onLoad() 호출');
-      onLoad?.();
+      // 스크립트 로드 후 객체 초기화 대기
+      const intervalId = setInterval(() => {
+        if (window.naver && window.naver.maps) {
+          clearInterval(intervalId);
+          onLoad?.();
+        }
+      }, 100);
     };
 
     document.head.appendChild(script);
-    console.log('[NaverMapLoader] 스크립트를 <head>에 삽입 완료');
   }, [onLoad]);
 
   return null;
